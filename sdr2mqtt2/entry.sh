@@ -56,4 +56,4 @@ else
       bashio::log.blue "Using RTL-SDR Device with serial number \"$RTL_SDR_SERIAL_NUM\" at index $(rtl_sdr -d 9999 |& grep "SN: $RTL_SDR_SERIAL_NUM" |& grep -o '^[^:]*' | sed 's/^[ \t]*//;s/[ \t]*$//')"
 fi
 
-rtl_433 $FREQUENCY $PROTOCOL -C $UNITS  -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,retain=$MQTT_RETAIN,events=$MQTT_TOPIC/events,states=$MQTT_TOPIC/states,devices=$MQTT_TOPIC[/model][/id][/channel:A]  -M time:tz:local -M protocol -M level -d $(rtl_sdr -d 9999 |& grep "SN: $RTL_SDR_SERIAL_NUM" |& grep -o '^[^:]*' | sed 's/^[ \t]*//;s/[ \t]*$//') | /scripts/rtl_433_mqtt_hass.py
+rtl_433 git:(feat-hg9901) $FREQUENCY $PROTOCOL -C $UNITS  -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,retain=$MQTT_RETAIN,events=$MQTT_TOPIC/events,states=$MQTT_TOPIC/states,devices=$MQTT_TOPIC[/model][/id][/channel:A]  -M time:tz:local -M protocol -M level -d $(rtl_sdr -d 9999 |& grep "SN: $RTL_SDR_SERIAL_NUM" |& grep -o '^[^:]*' | sed 's/^[ \t]*//;s/[ \t]*$//') | /scripts/rtl_433_mqtt_hass.py
