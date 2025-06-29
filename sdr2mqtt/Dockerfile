@@ -28,7 +28,7 @@ WORKDIR /data
 # Copy scripts
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
 
-# Install dependencies
+# Install dependencies with better error handling
 RUN apk update && \
     apk add --no-cache --virtual .build-deps \
         git \
@@ -38,8 +38,12 @@ RUN apk update && \
         g++ \
         libc-dev \
         libusb-dev \
+        librtlsdr-dev \
         pkgconfig \
-        linux-headers
+        linux-headers \
+        autoconf \
+        automake \
+        libtool
 
 RUN apk add --no-cache \
         rtl-sdr \
@@ -53,19 +57,33 @@ RUN apk add --no-cache \
 RUN echo "Cloning feat-gardensoil branch..." && \
     git clone --depth 1 --branch feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433
 
-# Configure build
+# Debug cmake environment
+RUN echo "Debugging cmake environment..." && \
+    cd /tmp/rtl_433 && \
+    ls -la && \
+    echo "CMake version:" && \
+    cmake --version && \
+    echo "Available packages:" && \
+    pkg-config --list-all | grep -i rtl || true && \
+    pkg-config --list-all | grep -i usb || true
+
+# Configure build with verbose output and better error handling
 RUN cd /tmp/rtl_433 && \
     mkdir -p build && \
     cd build && \
-    echo "Configuring cmake..." && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release
+    echo "Configuring cmake with verbose output..." && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_VERBOSE_MAKEFILE=ON \
+        -DENABLE_RTLSDR=ON \
+        --debug-output
 
-# Build
+# Build with verbose output
 RUN cd /tmp/rtl_433/build && \
-    echo "Building..." && \
-    make -j$(nproc)
+    echo "Building with verbose output..." && \
+    make -j$(nproc) VERBOSE=1
 
-# Manual installation to ensure it goes to the right place
+# Manual installation
 RUN cd /tmp/rtl_433/build && \
     echo "Installing manually..." && \
     cp src/rtl_433 /usr/bin/rtl_433 && \
@@ -78,9 +96,8 @@ RUN echo "Verifying installation..." && \
 
 # Check for protocol 278
 RUN echo "Checking for protocol 278..." && \
-    /usr/bin/rtl_433 -R help | grep "278" || \
-    (echo "Protocol 278 not found in help, checking source..." && \
-     grep -r "HG9901\|Homelead" /tmp/rtl_433/ || echo "Protocol search completed")
+    /usr/bin/rtl_433 -R help | grep "278" && \
+    echo "Protocol 278 found!"
 
 # Cleanup
 RUN rm -rf /tmp/rtl_433 && \
