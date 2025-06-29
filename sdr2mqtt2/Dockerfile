@@ -26,7 +26,7 @@ Description="This image is used to start the RTL433 to HASS script that will mon
 
 WORKDIR /data
 
-# Install runtime dependencies
+# Install runtime dependencies - try to get everything from apk first
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -34,10 +34,8 @@ RUN apk add --no-cache \
     jq \
     libusb \
     rtl-sdr \
-    bash
-
-# Install Python dependencies
-RUN pip3 install --no-cache-dir paho-mqtt
+    bash && \
+    apk add --no-cache py3-paho-mqtt || pip3 install --no-cache-dir --break-system-packages paho-mqtt
 
 # Install build dependencies
 RUN apk add --no-cache --virtual .build-deps \
