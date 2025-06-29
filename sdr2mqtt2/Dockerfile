@@ -32,6 +32,7 @@ RUN apk add --no-cache \
     py3-pip \
     mosquitto-clients \
     jq \
+    libssl-dev \
     libusb \
     rtl-sdr \
     bash && \
@@ -46,6 +47,7 @@ RUN apk add --no-cache --virtual .build-deps \
     gcc \
     musl-dev \
     libusb-dev \
+    librtlsdr \
     linux-headers \
     pkgconf
 
