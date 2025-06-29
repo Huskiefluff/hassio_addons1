@@ -90,28 +90,40 @@ bashio::log.info "DISCOVERY_INTERVAL =" $DISCOVERY_INTERVAL
 bashio::log.info "AUTO_DISCOVERY =" $AUTO_DISCOVERY
 bashio::log.info "DEBUG =" $DEBUG
 
-# Test if Python script is executable and working
-bashio::log.info "Testing Python script..."
-if python3 /scripts/rtl_433_mqtt_hass.py --help >/dev/null 2>&1; then
-    bashio::log.info "Python script is accessible"
-else
-    bashio::log.info "Python script test completed"
-fi
+# Test basic rtl_433 operation first
+bashio::log.info "Testing basic rtl_433 operation..."
+timeout 5 rtl_433 $FREQUENCY $PROTOCOL -C $UNITS -d $DEVICE_INDEX -T 1 > /dev/null 2>&1 || \
+bashio::log.warning "Basic test completed (timeout/error expected)"
 
 bashio::log.blue "::::::::rtl_433 running output::::::::"
 
-# Run rtl_433 with JSON output and proper formatting for the Python script
-bashio::log.info "Starting rtl_433 with JSON output for Python processing..."
-
-# Add JSON output explicitly and pipe to Python script
-rtl_433 \
-    $FREQUENCY \
-    $PROTOCOL \
-    -C $UNITS \
-    -F json \
-    -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,retain=$MQTT_RETAIN,events=$MQTT_TOPIC/events,states=$MQTT_TOPIC/states,devices=$MQTT_TOPIC[/model][/id][/channel:A] \
-    -M time:tz:local \
-    -M protocol \
-    -M level \
-    -d $DEVICE_INDEX | \
-python3 /scripts/rtl_433_mqtt_hass.py
+# Choose output method based on auto_discovery setting
+if [ "$AUTO_DISCOVERY" = "true" ]; then
+    bashio::log.info "Starting rtl_433 with JSON output for Home Assistant auto-discovery..."
+    
+    # Use JSON output only and pipe to Python script for auto-discovery
+    rtl_433 \
+        $FREQUENCY \
+        $PROTOCOL \
+        -C $UNITS \
+        -F json \
+        -M time:tz:local \
+        -M protocol \
+        -M level \
+        -d $DEVICE_INDEX | \
+    python3 /scripts/rtl_433_mqtt_hass.py
+    
+else
+    bashio::log.info "Starting rtl_433 with direct MQTT output (no auto-discovery)..."
+    
+    # Use direct MQTT output only (no Python script needed)
+    rtl_433 \
+        $FREQUENCY \
+        $PROTOCOL \
+        -C $UNITS \
+        -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,retain=$MQTT_RETAIN,events=$MQTT_TOPIC/events,states=$MQTT_TOPIC/states,devices=$MQTT_TOPIC[/model][/id][/channel:A] \
+        -M time:tz:local \
+        -M protocol \
+        -M level \
+        -d $DEVICE_INDEX
+fi
