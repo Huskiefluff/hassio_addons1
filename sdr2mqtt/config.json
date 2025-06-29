@@ -1,5 +1,5 @@
 {
-  "name": "SDR to Home Assistant instance 1",
+  "name": "SDR to Home Assistant instance 5",
   "version": "0.1.70",
   "slug": "sdr2mqtt1",
   "description": "SDR/RTL Sensors to Home Assistant via MQTT with Autodiscovery",
