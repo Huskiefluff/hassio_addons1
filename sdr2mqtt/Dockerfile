@@ -18,9 +18,11 @@ ENV MQTT_HOST=127.0.0.1 \
     DISCOVERY_INTERVAL=600 \
     AUTO_DISCOVERY=False \
     DEBUG=False \
-    LANG=C.UTF-8
+    LANG=C.UTF-8 \
+    PATH="/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin" \
+    LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:/usr/lib:/lib"
 
-LABEL Maintainer="Huskie" \
+LABEL Maintainer="Jeffrey Stone" \
 Description="This image is used to start the RTL433 to HASS script that will monitor for 433Mhz devices and send the data to an MQTT server"
 
 WORKDIR /data
@@ -52,10 +54,6 @@ RUN set -xe && \
     git clone --depth 1 --branch feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433 && \
     echo "Successfully cloned feat-gardensoil branch" && \
     cd /tmp/rtl_433 && \
-    echo "Contents of repository:" && \
-    ls -la && \
-    echo "Verifying protocol 278 exists:" && \
-    grep -r "HG9901\|Homelead\|278" . || echo "Protocol 278 search completed" && \
     mkdir -p build && \
     cd build && \
     echo "Running cmake configuration..." && \
@@ -67,10 +65,16 @@ RUN set -xe && \
     make -j$(nproc) && \
     echo "Installing rtl_433..." && \
     make install && \
+    echo "Creating symlinks to ensure rtl_433 is found..." && \
+    ln -sf /usr/local/bin/rtl_433 /usr/bin/rtl_433 && \
+    echo "Updating library cache..." && \
+    ldconfig /usr/local/lib && \
     echo "Verifying installation..." && \
-    rtl_433 -V && \
+    which rtl_433 && \
+    ls -la /usr/local/bin/rtl_433 && \
+    /usr/local/bin/rtl_433 -V && \
     echo "Checking for protocol 278..." && \
-    rtl_433 -R help | grep -E "(278|HG9901|Homelead)" || echo "Protocol 278 check completed" && \
+    /usr/local/bin/rtl_433 -R help | grep -E "(278|HG9901|Homelead)" || echo "Protocol 278 check completed" && \
     echo "Cleaning up build files..." && \
     cd / && \
     rm -rf /tmp/rtl_433 && \
