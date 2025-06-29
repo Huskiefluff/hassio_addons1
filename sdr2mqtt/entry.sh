@@ -35,6 +35,48 @@ bashio::log.info "MQTT Password =" $(echo $MQTT_PASSWORD | sha256sum | cut -f1 -
 bashio::log.info "MQTT Topic =" $MQTT_TOPIC
 bashio::log.info "MQTT Retain =" $MQTT_RETAIN
 bashio::log.info "RTL-SDR Device Serial Number =" $RTL_SDR_SERIAL_NUM
+
+# Check if rtl_433 exists and test it
+if ! command -v rtl_433 >/dev/null 2>&1; then
+    bashio::log.error "rtl_433 command not found!"
+    exit 1
+fi
+
+# Test rtl_433 functionality (ignore version display issues)
+bashio::log.info "Testing rtl_433 functionality..."
+if rtl_433 -h > /dev/null 2>&1; then
+    bashio::log.info "rtl_433 is functional"
+else
+    bashio::log.error "rtl_433 is not working properly"
+    exit 1
+fi
+
+# Show version (may show NOTFOUND but that's OK)
+bashio::log.info "RTL_433 Version:" 
+rtl_433 -V 2>/dev/null || bashio::log.info "Version info has display issues but rtl_433 is working"
+
+# Check for protocol 278
+bashio::log.info "Checking for Protocol 278 (Homelead HG9901)..."
+if rtl_433 -R help | grep -q "278"; then
+    bashio::log.info "✓ Protocol 278 (Homelead HG9901) is available!"
+else
+    bashio::log.warning "⚠ Protocol 278 may not be available"
+fi
+
+# Get device index - simplified approach
+DEVICE_INDEX="0"
+if command -v rtl_sdr >/dev/null 2>&1; then
+    RTL_SDR_OUTPUT=$(rtl_sdr -d 9999 2>&1 || true)
+    if echo "$RTL_SDR_OUTPUT" | grep -q "SN: $RTL_SDR_SERIAL_NUM"; then
+        DEVICE_INDEX=$(echo "$RTL_SDR_OUTPUT" | grep "SN: $RTL_SDR_SERIAL_NUM" | grep -o '^[^:]*' | sed 's/^[ \t]*//;s/[ \t]*$//' || echo "0")
+        bashio::log.info "RTL-SDR Device Index =" $DEVICE_INDEX
+    else
+        bashio::log.info "RTL-SDR Device with serial $RTL_SDR_SERIAL_NUM not found, using device 0"
+    fi
+else
+    bashio::log.info "rtl_sdr not available, using device index 0"
+fi
+
 bashio::log.info "PROTOCOL =" $PROTOCOL
 bashio::log.info "FREQUENCY =" $FREQUENCY
 bashio::log.info "Whitelist Enabled =" $WHITELIST_ENABLE
@@ -45,42 +87,7 @@ bashio::log.info "DISCOVERY_PREFIX =" $DISCOVERY_PREFIX
 bashio::log.info "DISCOVERY_INTERVAL =" $DISCOVERY_INTERVAL
 bashio::log.info "AUTO_DISCOVERY =" $AUTO_DISCOVERY
 bashio::log.info "DEBUG =" $DEBUG
-
-# Check if rtl_433 exists
-if ! command -v rtl_433 >/dev/null 2>&1; then
-    bashio::log.error "rtl_433 command not found!"
-    bashio::log.info "Searching for rtl_433 binary..."
-    find / -name "rtl_433" -type f 2>/dev/null || true
-    bashio::log.info "PATH: $PATH"
-    bashio::log.info "Contents of /usr/bin:"
-    ls -la /usr/bin/ | grep rtl || true
-    bashio::log.info "Contents of /usr/local/bin:"
-    ls -la /usr/local/bin/ | grep rtl || true
-    exit 1
-fi
-
-# Test rtl_433
-bashio::log.info "Testing rtl_433..."
-rtl_433 -V
-
 bashio::log.blue "::::::::rtl_433 running output::::::::"
-
-# Get device index - simplified approach
-DEVICE_INDEX="0"
-if command -v rtl_sdr >/dev/null 2>&1; then
-    DEVICE_INDEX=$(rtl_sdr -d 9999 2>&1 | grep "SN: $RTL_SDR_SERIAL_NUM" | grep -o '^[^:]*' | sed 's/^[ \t]*//;s/[ \t]*$//' || echo "0")
-    bashio::log.info "RTL-SDR Device Index =" $DEVICE_INDEX
-else
-    bashio::log.info "rtl_sdr not available, using device index 0"
-fi
-
-# Check if device is found
-if [ -z "$DEVICE_INDEX" ] || [ "$DEVICE_INDEX" = "" ]; then
-    bashio::log.info "Matching RTL-SDR Device with serial number \"$RTL_SDR_SERIAL_NUM\" not found, using device 0"
-    DEVICE_INDEX="0"
-else
-    bashio::log.blue "Using RTL-SDR Device with serial number \"$RTL_SDR_SERIAL_NUM\" at index $DEVICE_INDEX"
-fi
 
 # Run rtl_433
 rtl_433 $FREQUENCY $PROTOCOL -C $UNITS -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,retain=$MQTT_RETAIN,events=$MQTT_TOPIC/events,states=$MQTT_TOPIC/states,devices=$MQTT_TOPIC[/model][/id][/channel:A] -M time:tz:local -M protocol -M level -d $DEVICE_INDEX | /scripts/rtl_433_mqtt_hass.py
