@@ -21,7 +21,7 @@ ENV MQTT_HOST=127.0.0.1 \
     DEBUG=False \
     LANG=C.UTF-8
 
-LABEL Maintainer="Jeffrey Stone" \
+LABEL Maintainer="Huskie" \
 Description="This image is used to start the RTL433 to HASS script that will monitor for 433Mhz devices and send the data to an MQTT server"
 
 WORKDIR /data
