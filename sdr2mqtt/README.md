@@ -1,4 +1,4 @@
-# Home Assistant Add-on: SDR2mqtt
+# Home Assistant Add-on: SDR2mqtt1
 
 A Home Assistant addon for a software defined radio tuned to listen for RF transmissions from SDR/RTL Sensors and republish the data via MQTT.
 
@@ -6,7 +6,7 @@ A Home Assistant addon for a software defined radio tuned to listen for RF trans
 
 Add the repository URL under **Supervisor → Add-on store → ⋮ → Manage add-on repositories**:
 
-    https://github.com/galbers/hassio_addons
+    https://github.com/Huskiefluff/hassio_addons1
 
 Then search for `SDR to home Assistant` and install it.
 
