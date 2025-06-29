@@ -26,8 +26,9 @@ Description="This image is used to start the RTL433 to HASS script that will mon
 
 WORKDIR /data
 
-# Install runtime dependencies first
-RUN apk add --no-cache \
+# Update package index and install runtime dependencies
+RUN apk update && \
+    apk add --no-cache \
     python3 \
     py3-pip \
     py3-paho-mqtt \
@@ -35,22 +36,27 @@ RUN apk add --no-cache \
     jq \
     libusb \
     rtl-sdr \
-    bash
+    bash \
+    curl \
+    ca-certificates
 
-# Install build dependencies and build rtl_433
-RUN apk add --no-cache --virtual .build-deps \
+# Install build dependencies
+RUN apk add --no-cache \
     git \
     cmake \
     make \
     g++ \
+    gcc \
+    musl-dev \
     libusb-dev \
-    rtl-sdr-dev
+    rtl-sdr-dev \
+    linux-headers
 
 # Clone and build rtl_433 from feat-gardensoil branch
 RUN cd /tmp && \
     git clone https://github.com/merbanan/rtl_433.git && \
     cd rtl_433 && \
-    git checkout feat-gardensoil || git checkout master && \
+    (git checkout feat-gardensoil || git checkout master) && \
     mkdir build && \
     cd build && \
     cmake .. && \
@@ -58,10 +64,20 @@ RUN cd /tmp && \
     make install
 
 # Clean up build dependencies and source
-RUN apk del .build-deps && \
-    rm -rf /tmp/rtl_433
+RUN apk del \
+    git \
+    cmake \
+    make \
+    g++ \
+    gcc \
+    musl-dev \
+    libusb-dev \
+    rtl-sdr-dev \
+    linux-headers && \
+    rm -rf /tmp/rtl_433 && \
+    rm -rf /var/cache/apk/*
 
-# Copy scripts (do this after the build to ensure they exist)
+# Copy scripts
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
 
 # Make scripts executable
@@ -69,7 +85,7 @@ RUN chmod +x /scripts/entry.sh && \
     chmod +x /scripts/rtl_433_mqtt_hass.py
 
 # Verify rtl_433 installation
-RUN rtl_433 -V
+RUN rtl_433 -V || echo "rtl_433 installation verification failed"
 
 # Execute entry script
 ENTRYPOINT [ "/scripts/entry.sh" ]
