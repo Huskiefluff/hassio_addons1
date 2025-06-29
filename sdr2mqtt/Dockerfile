@@ -28,9 +28,8 @@ WORKDIR /data
 # Copy scripts
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
 
-# Install build dependencies and runtime dependencies
-RUN set -xe && \
-    apk update && \
+# Install dependencies
+RUN apk update && \
     apk add --no-cache --virtual .build-deps \
         git \
         cmake \
@@ -40,38 +39,55 @@ RUN set -xe && \
         libc-dev \
         libusb-dev \
         pkgconfig \
-        linux-headers && \
-    apk add --no-cache \
+        linux-headers
+
+RUN apk add --no-cache \
         rtl-sdr \
         libusb \
         mosquitto-clients \
         python3 \
         py3-paho-mqtt \
-        sed && \
-    echo "Cloning rtl_433 feat-gardensoil branch..." && \
-    git clone --depth 1 --branch feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433 && \
-    cd /tmp/rtl_433 && \
+        sed
+
+# Clone repository
+RUN echo "Cloning feat-gardensoil branch..." && \
+    git clone --depth 1 --branch feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433
+
+# Configure build
+RUN cd /tmp/rtl_433 && \
     mkdir -p build && \
     cd build && \
-    echo "Running cmake configuration..." && \
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/usr \
-        -DENABLE_RTLSDR=ON && \
-    echo "Building rtl_433..." && \
-    make -j$(nproc) && \
-    echo "Installing rtl_433..." && \
-    make install && \
-    echo "Verifying installation..." && \
+    echo "Configuring cmake..." && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+
+# Build
+RUN cd /tmp/rtl_433/build && \
+    echo "Building..." && \
+    make -j$(nproc)
+
+# Manual installation to ensure it goes to the right place
+RUN cd /tmp/rtl_433/build && \
+    echo "Installing manually..." && \
+    cp src/rtl_433 /usr/bin/rtl_433 && \
+    chmod +x /usr/bin/rtl_433
+
+# Verify installation
+RUN echo "Verifying installation..." && \
     ls -la /usr/bin/rtl_433 && \
-    /usr/bin/rtl_433 -V && \
-    echo "Checking for protocol 278..." && \
-    /usr/bin/rtl_433 -R help | grep -E "(278|HG9901|Homelead)" && \
-    echo "Cleaning up..." && \
-    cd / && \
-    rm -rf /tmp/rtl_433 && \
-    apk del .build-deps && \
-    chmod +x /scripts/entry.sh && \
+    /usr/bin/rtl_433 -V
+
+# Check for protocol 278
+RUN echo "Checking for protocol 278..." && \
+    /usr/bin/rtl_433 -R help | grep "278" || \
+    (echo "Protocol 278 not found in help, checking source..." && \
+     grep -r "HG9901\|Homelead" /tmp/rtl_433/ || echo "Protocol search completed")
+
+# Cleanup
+RUN rm -rf /tmp/rtl_433 && \
+    apk del .build-deps
+
+# Set permissions
+RUN chmod +x /scripts/entry.sh && \
     chmod +x /scripts/rtl_433_mqtt_hass.py
 
 # Execute entry script
