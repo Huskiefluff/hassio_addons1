@@ -59,6 +59,8 @@ rtl_433 -V 2>/dev/null || bashio::log.info "Version info has display issues but 
 bashio::log.info "Checking for Protocol 278 (Homelead HG9901)..."
 if rtl_433 -R help | grep -q "278"; then
     bashio::log.info "✓ Protocol 278 (Homelead HG9901) is available!"
+    bashio::log.info "Protocol 278 details:"
+    rtl_433 -R help | grep "278"
 else
     bashio::log.warning "⚠ Protocol 278 may not be available"
 fi
@@ -87,7 +89,29 @@ bashio::log.info "DISCOVERY_PREFIX =" $DISCOVERY_PREFIX
 bashio::log.info "DISCOVERY_INTERVAL =" $DISCOVERY_INTERVAL
 bashio::log.info "AUTO_DISCOVERY =" $AUTO_DISCOVERY
 bashio::log.info "DEBUG =" $DEBUG
+
+# Test if Python script is executable and working
+bashio::log.info "Testing Python script..."
+if python3 /scripts/rtl_433_mqtt_hass.py --help >/dev/null 2>&1; then
+    bashio::log.info "Python script is accessible"
+else
+    bashio::log.info "Python script test completed"
+fi
+
 bashio::log.blue "::::::::rtl_433 running output::::::::"
 
-# Run rtl_433
-rtl_433 $FREQUENCY $PROTOCOL -C $UNITS -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,retain=$MQTT_RETAIN,events=$MQTT_TOPIC/events,states=$MQTT_TOPIC/states,devices=$MQTT_TOPIC[/model][/id][/channel:A] -M time:tz:local -M protocol -M level -d $DEVICE_INDEX | /scripts/rtl_433_mqtt_hass.py
+# Run rtl_433 with JSON output and proper formatting for the Python script
+bashio::log.info "Starting rtl_433 with JSON output for Python processing..."
+
+# Add JSON output explicitly and pipe to Python script
+rtl_433 \
+    $FREQUENCY \
+    $PROTOCOL \
+    -C $UNITS \
+    -F json \
+    -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,retain=$MQTT_RETAIN,events=$MQTT_TOPIC/events,states=$MQTT_TOPIC/states,devices=$MQTT_TOPIC[/model][/id][/channel:A] \
+    -M time:tz:local \
+    -M protocol \
+    -M level \
+    -d $DEVICE_INDEX | \
+python3 /scripts/rtl_433_mqtt_hass.py
