@@ -37,7 +37,8 @@ RUN apk add --no-cache --virtual .build-deps \
     gcc \
     g++ \
     libc-dev \
-    libusb-dev && \
+    libusb-dev \
+    pkgconfig && \
     apk add --no-cache \
     rtl-sdr \
     libusb \
@@ -45,14 +46,24 @@ RUN apk add --no-cache --virtual .build-deps \
     python3 \
     py3-paho-mqtt \
     sed && \
-    # Clone and build rtl_433 from the feat-gardensoil branch
+    # Clone and build rtl_433 from the feat-gardensoil branch with better error handling
+    echo "Cloning rtl_433 feat-gardensoil branch..." && \
     git clone --depth 1 --branch feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433 && \
+    echo "Branch cloned successfully, contents:" && \
+    ls -la /tmp/rtl_433/ && \
     cd /tmp/rtl_433 && \
-    mkdir build && \
+    echo "Creating build directory..." && \
+    mkdir -p build && \
     cd build && \
-    cmake .. && \
+    echo "Running cmake..." && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    echo "Building with make..." && \
     make -j$(nproc) && \
+    echo "Installing..." && \
     make install && \
+    # Verify installation
+    echo "Verifying rtl_433 installation..." && \
+    rtl_433 -V && \
     # Clean up build dependencies and temporary files
     cd / && \
     rm -rf /tmp/rtl_433 && \
