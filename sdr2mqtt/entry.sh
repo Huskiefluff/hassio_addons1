@@ -21,17 +21,30 @@ EXPIRE_AFTER="$(bashio::config 'expire_after')"
 
 export LANG=C
 
-bashio::log.blue "::::::::RTL_433 JSON-Only Safe Mode::::::::"
-bashio::log.info "Using JSON output with Python MQTT bridge"
+# Export all config for Python script
+export MQTT_HOST MQTT_PORT MQTT_USERNAME MQTT_PASSWORD MQTT_TOPIC DISCOVERY_PREFIX
+export WHITELIST_ENABLE WHITELIST DISCOVERY_INTERVAL AUTO_DISCOVERY DEBUG EXPIRE_AFTER MQTT_RETAIN
 
-# Check protocol 278
-if rtl_433 -R help | grep -q "278.*HG9901"; then
-    bashio::log.info "✓ Protocol 278 (Homelead HG9901) available"
-fi
+bashio::log.blue "::::::::RTL_433 Working Mode::::::::"
+bashio::log.info "Protocol 278 (HG9901) available for soil moisture sensors"
+
+# Cleanup function
+cleanup() {
+    bashio::log.info "Shutting down gracefully..."
+    if [ ! -z "$RTL_TCP_PID" ]; then
+        kill -TERM $RTL_TCP_PID 2>/dev/null || true
+        sleep 1
+        kill -KILL $RTL_TCP_PID 2>/dev/null || true
+    fi
+    exit 0
+}
+
+# Set up signal handlers
+trap cleanup SIGTERM SIGINT SIGQUIT
 
 # Kill any existing rtl_tcp
 pkill rtl_tcp 2>/dev/null || true
-sleep 2
+sleep 1
 
 # Start rtl_tcp with correct device
 DEVICE_INDEX=0
@@ -44,23 +57,45 @@ rtl_tcp -a 127.0.0.1 -p 1234 -d $DEVICE_INDEX &
 RTL_TCP_PID=$!
 sleep 3
 
-# Export config for Python script
-export MQTT_HOST MQTT_PORT MQTT_USERNAME MQTT_PASSWORD MQTT_TOPIC DISCOVERY_PREFIX
-export WHITELIST_ENABLE WHITELIST DISCOVERY_INTERVAL AUTO_DISCOVERY DEBUG EXPIRE_AFTER MQTT_RETAIN
+bashio::log.info "RTL_433 is working! Listening for signals..."
+bashio::log.info "Enabled protocols: $PROTOCOL"
+bashio::log.info "Frequency: $FREQUENCY"
 
-bashio::log.info "Starting rtl_433 with JSON output only..."
-bashio::log.info "Command: rtl_433 -d rtl_tcp:127.0.0.1:1234 $FREQUENCY $PROTOCOL -C $UNITS -F json -M time -M protocol"
+# Start the main process with error handling
+while true; do
+    bashio::log.info "Starting signal detection..."
+    
+    # Run rtl_433 with JSON output
+    rtl_433 \
+        -d rtl_tcp:127.0.0.1:1234 \
+        $FREQUENCY \
+        $PROTOCOL \
+        -C $UNITS \
+        -F json \
+        -M time \
+        -M protocol 2>/dev/null | \
+    python3 /scripts/rtl_433_mqtt_hass.py
+    
+    # If we get here, rtl_433 exited
+    EXIT_CODE=$?
+    
+    if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 130 ]; then
+        # Normal exit or SIGINT
+        bashio::log.info "rtl_433 exited normally"
+        break
+    else
+        # Abnormal exit, restart after a delay
+        bashio::log.warning "rtl_433 exited unexpectedly (code: $EXIT_CODE), restarting in 5 seconds..."
+        sleep 5
+        
+        # Check if rtl_tcp is still running
+        if ! kill -0 $RTL_TCP_PID 2>/dev/null; then
+            bashio::log.info "Restarting rtl_tcp..."
+            rtl_tcp -a 127.0.0.1 -p 1234 -d $DEVICE_INDEX &
+            RTL_TCP_PID=$!
+            sleep 3
+        fi
+    fi
+done
 
-# Use only JSON output - safest approach
-rtl_433 \
-    -d rtl_tcp:127.0.0.1:1234 \
-    $FREQUENCY \
-    $PROTOCOL \
-    -C $UNITS \
-    -F json \
-    -M time \
-    -M protocol | \
-python3 /scripts/rtl_433_mqtt_hass.py
-
-# Cleanup
-kill $RTL_TCP_PID 2>/dev/null || true
+cleanup
