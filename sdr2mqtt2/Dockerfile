@@ -37,7 +37,7 @@ RUN apk add --no-cache \
     bash && \
     apk add --no-cache py3-paho-mqtt || pip3 install --no-cache-dir --break-system-packages paho-mqtt
 
-# Install build dependencies
+# Install build dependencies including rtl-sdr-dev from testing
 RUN apk add --no-cache --virtual .build-deps \
     git \
     cmake \
@@ -46,7 +46,20 @@ RUN apk add --no-cache --virtual .build-deps \
     gcc \
     musl-dev \
     libusb-dev \
-    linux-headers
+    linux-headers \
+    pkgconf
+
+# Build and install rtl-sdr from source first
+RUN cd /tmp && \
+    git clone https://github.com/osmocom/rtl-sdr.git && \
+    cd rtl-sdr && \
+    mkdir build && \
+    cd build && \
+    cmake .. -DINSTALL_UDEV_RULES=OFF -DDETACH_KERNEL_DRIVER=ON && \
+    make && \
+    make install && \
+    cd / && \
+    rm -rf /tmp/rtl-sdr
 
 # Clone and build rtl_433 from feat-gardensoil branch
 RUN cd /tmp && \
