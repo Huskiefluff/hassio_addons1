@@ -26,9 +26,8 @@ Description="This image is used to start the RTL433 to HASS script that will mon
 
 WORKDIR /data
 
-# Update package index and install runtime dependencies
-RUN apk update && \
-    apk add --no-cache \
+# Install runtime dependencies
+RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-paho-mqtt \
@@ -37,11 +36,10 @@ RUN apk update && \
     libusb \
     rtl-sdr \
     bash \
-    curl \
-    ca-certificates
+    bashio
 
 # Install build dependencies
-RUN apk add --no-cache \
+RUN apk add --no-cache --virtual .build-deps \
     git \
     cmake \
     make \
@@ -49,31 +47,20 @@ RUN apk add --no-cache \
     gcc \
     musl-dev \
     libusb-dev \
-    rtl-sdr-dev \
     linux-headers
 
 # Clone and build rtl_433 from feat-gardensoil branch
 RUN cd /tmp && \
     git clone https://github.com/merbanan/rtl_433.git && \
     cd rtl_433 && \
-    (git checkout feat-gardensoil || git checkout master) && \
+    git checkout feat-gardensoil || git checkout master && \
     mkdir build && \
     cd build && \
     cmake .. && \
     make && \
-    make install
-
-# Clean up build dependencies and source
-RUN apk del \
-    git \
-    cmake \
-    make \
-    g++ \
-    gcc \
-    musl-dev \
-    libusb-dev \
-    rtl-sdr-dev \
-    linux-headers && \
+    make install && \
+    cd / && \
+    apk del .build-deps && \
     rm -rf /tmp/rtl_433 && \
     rm -rf /var/cache/apk/*
 
