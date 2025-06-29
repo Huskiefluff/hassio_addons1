@@ -30,13 +30,14 @@ WORKDIR /data
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-paho-mqtt \
     mosquitto-clients \
     jq \
     libusb \
     rtl-sdr \
-    bash \
-    bashio
+    bash
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir paho-mqtt
 
 # Install build dependencies
 RUN apk add --no-cache --virtual .build-deps \
