@@ -2,7 +2,6 @@ ARG BUILD_FROM
 FROM $BUILD_FROM
 
 # Define environment variables
-# Use this variable when creating a container to specify the MQTT broker host.
 ENV MQTT_HOST=127.0.0.1 \
     MQTT_PORT=1883 \
     MQTT_USERNAME="" \
@@ -21,7 +20,7 @@ ENV MQTT_HOST=127.0.0.1 \
     DEBUG=False \
     LANG=C.UTF-8
 
-LABEL Maintainer="Jeffrey Stone" \
+LABEL Maintainer="Huskie" \
 Description="This image is used to start the RTL433 to HASS script that will monitor for 433Mhz devices and send the data to an MQTT server"
 
 WORKDIR /data
@@ -30,47 +29,56 @@ WORKDIR /data
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
 
 # Install build dependencies and runtime dependencies
-RUN apk add --no-cache --virtual .build-deps \
-    git \
-    cmake \
-    make \
-    gcc \
-    g++ \
-    libc-dev \
-    libusb-dev \
-    pkgconfig && \
+RUN set -xe && \
+    apk update && \
+    apk add --no-cache --virtual .build-deps \
+        git \
+        cmake \
+        make \
+        gcc \
+        g++ \
+        libc-dev \
+        libusb-dev \
+        pkgconfig \
+        linux-headers && \
     apk add --no-cache \
-    rtl-sdr \
-    libusb \
-    mosquitto-clients \
-    python3 \
-    py3-paho-mqtt \
-    sed && \
-    # Clone and build rtl_433 from the feat-gardensoil branch with better error handling
+        rtl-sdr \
+        libusb \
+        mosquitto-clients \
+        python3 \
+        py3-paho-mqtt \
+        sed && \
     echo "Cloning rtl_433 feat-gardensoil branch..." && \
     git clone --depth 1 --branch feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433 && \
-    echo "Branch cloned successfully, contents:" && \
-    ls -la /tmp/rtl_433/ && \
+    echo "Successfully cloned feat-gardensoil branch" && \
     cd /tmp/rtl_433 && \
-    echo "Creating build directory..." && \
+    echo "Contents of repository:" && \
+    ls -la && \
+    echo "Verifying protocol 278 exists:" && \
+    grep -r "HG9901\|Homelead\|278" . || echo "Protocol 278 search completed" && \
     mkdir -p build && \
     cd build && \
-    echo "Running cmake..." && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release && \
-    echo "Building with make..." && \
+    echo "Running cmake configuration..." && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DENABLE_RTLSDR=ON && \
+    echo "Building rtl_433..." && \
     make -j$(nproc) && \
-    echo "Installing..." && \
+    echo "Installing rtl_433..." && \
     make install && \
-    # Verify installation
-    echo "Verifying rtl_433 installation..." && \
+    echo "Verifying installation..." && \
     rtl_433 -V && \
-    # Clean up build dependencies and temporary files
+    echo "Checking for protocol 278..." && \
+    rtl_433 -R help | grep -E "(278|HG9901|Homelead)" || echo "Protocol 278 check completed" && \
+    echo "Cleaning up build files..." && \
     cd / && \
     rm -rf /tmp/rtl_433 && \
     apk del .build-deps && \
-    # Make scripts executable
+    echo "Making scripts executable..." && \
     chmod +x /scripts/entry.sh && \
-    chmod +x /scripts/rtl_433_mqtt_hass.py
+    chmod +x /scripts/rtl_433_mqtt_hass.py && \
+    echo "Build completed successfully!"
 
 # Execute entry script
 ENTRYPOINT [ "/scripts/entry.sh" ]
