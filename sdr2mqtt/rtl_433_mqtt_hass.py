@@ -12,6 +12,7 @@ import time
 import paho.mqtt.client as mqtt
 import logging
 from datetime import datetime
+import threading
 
 MQTT_HOST = os.environ['MQTT_HOST']
 MQTT_PORT = os.environ['MQTT_PORT']
@@ -46,6 +47,9 @@ auto_discovery = (AUTO_DISCOVERY == "true")
 
 # Configure logging
 logging.basicConfig(format='%(levelname)s:%(message)s', level=LOGLEVEL)
+
+# Global MQTT client for availability updates
+mqtt_client = None
 
 mappings = {
     "time": {
@@ -159,13 +163,32 @@ mappings = {
 }
 
 
+def keep_alive():
+    """Keep availability status alive by periodically publishing online status."""
+    global mqtt_client
+    while mqtt_client and mqtt_client.is_connected():
+        try:
+            mqtt_client.publish(f"{MQTT_TOPIC}/status", payload="online", qos=0, retain=True)
+            logging.debug("Published keep-alive status")
+            time.sleep(30)  # Publish every 30 seconds
+        except:
+            break
+
+
 def mqtt_connect(client, userdata, flags, rc):
     """Callback for MQTT connects."""
+    global mqtt_client
     logging.info("MQTT connected: " + mqtt.connack_string(rc))
-    # CRITICAL FIX: Publish to the exact status topic that rtl_433 expects
+    
+    # Publish online status immediately
     client.publish(f"{MQTT_TOPIC}/status", payload="online", qos=0, retain=True)
+    
     if rc != 0:
         logging.critical("Could not connect. Error: " + str(rc))
+    else:
+        # Start keep-alive thread
+        keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+        keep_alive_thread.start()
 
 
 def mqtt_disconnect(client, userdata, rc):
@@ -203,17 +226,25 @@ def publish_config(mqttc, topic, model, instance, channel, mapping):
 
     config = mapping["config"].copy()
     
-    # CRITICAL FIX: Use the exact state topic format that matches rtl_433 structure
+    # Use proper state topic format
     config["state_topic"] = f"{MQTT_TOPIC}/{sanitize(model)}/{instance}/{channel}/{topic}"
     config["name"] = f"{model} {instance} {mapping['config']['name']}"
     config["unique_id"] = f"rtl433_{device_type}_{instance}_{object_suffix}"
-    # CRITICAL FIX: Point to the correct availability topic
+    
+    # CRITICAL FIX: Configure availability properly
     config["availability_topic"] = f"{MQTT_TOPIC}/status"
     config["payload_available"] = "online"
     config["payload_not_available"] = "offline"
     
-    if int(EXPIRE_AFTER) > 0:
-        config["expire_after"] = int(EXPIRE_AFTER)
+    # CRITICAL FIX: Handle expire_after properly
+    expire_after_val = int(EXPIRE_AFTER)
+    if expire_after_val > 0:
+        # Set expire_after to a reasonable value (not too short)
+        config["expire_after"] = max(expire_after_val, 300)  # Minimum 5 minutes
+        logging.debug(f"Set expire_after to {config['expire_after']} seconds")
+    else:
+        # Don't set expire_after if it's 0 or disabled
+        logging.debug("expire_after disabled")
 
     # Add Home Assistant device info
     if '-' in model:
@@ -266,9 +297,12 @@ def bridge_event_to_hass(mqttc, topic, data):
         blocked.append(str(data['id']))
         return
 
-    # CRITICAL FIX: Publish to BOTH rtl_433 structure AND individual topics
+    # Ensure we have a current online status
+    mqttc.publish(f"{MQTT_TOPIC}/status", payload="online", qos=0, retain=True)
+
+    # Publish to multiple MQTT topics for compatibility
     
-    # 1. Publish to rtl_433 events topic (this fixes the rtl_433 section not updating)
+    # 1. Publish to rtl_433 events topic
     events_topic = f"{MQTT_TOPIC}/events"
     mqttc.publish(events_topic, json.dumps(data), qos=0, retain=False)
     
@@ -276,11 +310,11 @@ def bridge_event_to_hass(mqttc, topic, data):
     states_topic = f"{MQTT_TOPIC}/states"
     mqttc.publish(states_topic, json.dumps(data), qos=0, retain=True)
     
-    # 3. Publish to device-specific topics (this is what rtl_433 normally does)
+    # 3. Publish to device-specific topics
     device_base_topic = f"{MQTT_TOPIC}/{sanitize(model)}/{instance}/{channel}"
     mqttc.publish(device_base_topic, json.dumps(data), qos=0, retain=True)
     
-    # 4. Publish individual sensor values to separate topics
+    # 4. Publish individual sensor values
     for key, value in data.items():
         if key in mappings:
             state_topic = f"{device_base_topic}/{key}"
@@ -291,24 +325,25 @@ def bridge_event_to_hass(mqttc, topic, data):
             if auto_discovery:
                 publish_config(mqttc, key, model, instance, channel, mappings[key])
 
-    logging.info(f"Published complete data for {model} {instance} to all required topics")
+    logging.info(f"Published complete data for {model} {instance}")
 
 
 def rtl_433_bridge():
     """Run a MQTT Home Assistant auto discovery bridge for rtl_433."""
+    global mqtt_client
     
-    mqttc = mqtt.Client(client_id="rtl433_bridge")
-    mqttc.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-    mqttc.on_connect = mqtt_connect
-    mqttc.on_disconnect = mqtt_disconnect
+    mqtt_client = mqtt.Client(client_id="rtl433_bridge")
+    mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+    mqtt_client.on_connect = mqtt_connect
+    mqtt_client.on_disconnect = mqtt_disconnect
 
     # Set will message to mark as offline when disconnected
-    mqttc.will_set(f"{MQTT_TOPIC}/status", payload="offline", qos=0, retain=True)
+    mqtt_client.will_set(f"{MQTT_TOPIC}/status", payload="offline", qos=0, retain=True)
     
     try:
-        mqttc.connect(MQTT_HOST, MQTT_PORT, 60)
-        mqttc.loop_start()
-        logging.info('MQTT Bridge Started - publishing to all required topics...')
+        mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
+        mqtt_client.loop_start()
+        logging.info('MQTT Bridge Started with stable availability...')
         
         # Read from stdin (rtl_433 output)
         for line in sys.stdin:
@@ -317,7 +352,7 @@ def rtl_433_bridge():
                 try:
                     # Parse JSON from rtl_433
                     data = json.loads(line)
-                    bridge_event_to_hass(mqttc, "events", data)
+                    bridge_event_to_hass(mqtt_client, "events", data)
                 except json.JSONDecodeError:
                     logging.debug(f"Non-JSON line: {line}")
                 except Exception as e:
@@ -328,9 +363,10 @@ def rtl_433_bridge():
     except Exception as e:
         logging.error(f"Error in main loop: {e}")
     finally:
-        mqttc.publish(f"{MQTT_TOPIC}/status", payload="offline", qos=0, retain=True)
-        mqttc.loop_stop()
-        mqttc.disconnect()
+        if mqtt_client:
+            mqtt_client.publish(f"{MQTT_TOPIC}/status", payload="offline", qos=0, retain=True)
+            mqtt_client.loop_stop()
+            mqtt_client.disconnect()
 
 
 if __name__ == "__main__":
