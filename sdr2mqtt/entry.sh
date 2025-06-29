@@ -25,7 +25,7 @@ export LANG=C
 export MQTT_HOST MQTT_PORT MQTT_USERNAME MQTT_PASSWORD MQTT_TOPIC DISCOVERY_PREFIX
 export WHITELIST_ENABLE WHITELIST DISCOVERY_INTERVAL AUTO_DISCOVERY DEBUG EXPIRE_AFTER MQTT_RETAIN
 
-bashio::log.blue "::::::::RTL_433 Multi-Protocol Mode::::::::"
+bashio::log.blue "::::::::RTL_433 Robust Multi-Protocol Mode::::::::"
 
 # Parse and validate protocol string
 if [ -n "$PROTOCOL" ] && [ "$PROTOCOL" != "" ]; then
@@ -86,47 +86,136 @@ if [ "$RTL_SDR_SERIAL_NUM" = "2002" ]; then
     DEVICE_INDEX=1
 fi
 
-# Start rtl_tcp
-bashio::log.info "Starting rtl_tcp on device $DEVICE_INDEX..."
-rtl_tcp -a 127.0.0.1 -p 1234 -d $DEVICE_INDEX >/dev/null 2>&1 &
-RTL_TCP_PID=$!
-sleep 3
+# Start rtl_tcp ONCE and keep it running
+start_rtl_tcp() {
+    bashio::log.info "Starting rtl_tcp on device $DEVICE_INDEX..."
+    rtl_tcp -a 127.0.0.1 -p 1234 -d $DEVICE_INDEX >/dev/null 2>&1 &
+    RTL_TCP_PID=$!
+    sleep 3
+    bashio::log.info "rtl_tcp started (PID: $RTL_TCP_PID)"
+}
 
-bashio::log.info "🎯 Multi-protocol detection ready!"
+start_rtl_tcp
+
+# Start Python MQTT bridge in background
+start_python_bridge() {
+    python3 /scripts/rtl_433_mqtt_hass.py &
+    PYTHON_PID=$!
+    bashio::log.info "MQTT bridge started (PID: $PYTHON_PID)"
+}
+
+start_python_bridge
+
+bashio::log.info "🎯 Robust multi-protocol detection ready!"
 bashio::log.info "📡 Protocols: ${PROTOCOL:-"ALL"}"
 bashio::log.info "📊 Frequency: $FREQUENCY"
+bashio::log.info "🔄 Auto-restart enabled for segfaults"
 
-# Main loop with restart capability
+# Cleanup function
+cleanup() {
+    bashio::log.info "Cleaning up processes..."
+    kill $RTL_TCP_PID $PYTHON_PID 2>/dev/null || true
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT
+
+# Main loop with intelligent restart
+RESTART_COUNT=0
+LAST_SUCCESS_TIME=$(date +%s)
+
 while true; do
-    bashio::log.info "📡 Starting multi-protocol detection..."
+    RESTART_COUNT=$((RESTART_COUNT + 1))
+    CURRENT_TIME=$(date +%s)
     
-    # Build rtl_433 command with proper protocol handling
+    bashio::log.info "📡 Starting detection session #$RESTART_COUNT"
+    
+    # Build rtl_433 command
     RTL_CMD="rtl_433 -d rtl_tcp:127.0.0.1:1234 $FREQUENCY"
     
     # Add protocols if specified
     if [ -n "$PROTOCOL" ] && [ "$PROTOCOL" != "" ]; then
         RTL_CMD="$RTL_CMD $PROTOCOL"
-        bashio::log.info "Using protocols: $PROTOCOL"
+        bashio::log.debug "Command: $RTL_CMD -C $UNITS -F json -M time -M protocol"
     else
-        bashio::log.info "Using all available protocols"
+        bashio::log.debug "Command: $RTL_CMD -C $UNITS -F json -M time -M protocol (all protocols)"
     fi
     
-    # Add remaining parameters
-    RTL_CMD="$RTL_CMD -C $UNITS -F json -M time -M protocol"
+    # Create a named pipe for communication
+    PIPE="/tmp/rtl433_pipe_$$"
+    mkfifo "$PIPE" 2>/dev/null || true
     
-    bashio::log.debug "Full command: $RTL_CMD"
+    # Start rtl_433 and redirect to pipe
+    (
+        set +e  # Don't exit on errors
+        $RTL_CMD -C $UNITS -F json -M time -M protocol 2>/dev/null > "$PIPE"
+        echo "RTL_433_EXIT_CODE=$?" > /tmp/rtl433_exit
+    ) &
+    RTL_PID=$!
     
-    # Execute the command
-    $RTL_CMD 2>/dev/null | python3 /scripts/rtl_433_mqtt_hass.py
+    # Read from pipe and send to Python bridge
+    timeout 3600 cat "$PIPE" | python3 -c "
+import sys
+import json
+import os
+import paho.mqtt.client as mqtt
+
+# Connect to MQTT
+client = mqtt.Client()
+client.username_pw_set('$MQTT_USERNAME', '$MQTT_PASSWORD')
+client.connect('$MQTT_HOST', $MQTT_PORT, 60)
+client.publish('$MQTT_TOPIC/status', 'online', retain=True)
+
+try:
+    for line in sys.stdin:
+        line = line.strip()
+        if line:
+            try:
+                data = json.loads(line)
+                # Publish to events topic
+                client.publish('$MQTT_TOPIC/events', json.dumps(data), retain=False)
+                print(f'Published: {data.get(\"model\", \"unknown\")} {data.get(\"id\", \"\")}')
+            except:
+                pass
+finally:
+    client.disconnect()
+" 2>/dev/null || true
     
-    # Brief pause before restart
-    sleep 2
+    # Clean up pipe
+    rm -f "$PIPE" 2>/dev/null || true
     
-    # Check if rtl_tcp is still running
+    # Check exit status
+    if [ -f /tmp/rtl433_exit ]; then
+        source /tmp/rtl433_exit
+        rm -f /tmp/rtl433_exit
+        
+        if [ "$RTL_433_EXIT_CODE" = "139" ]; then
+            bashio::log.warning "Segfault detected in session #$RESTART_COUNT - restarting..."
+            sleep 1
+        else
+            bashio::log.info "rtl_433 exited with code $RTL_433_EXIT_CODE"
+            sleep 2
+        fi
+    else
+        bashio::log.info "Session #$RESTART_COUNT completed"
+        sleep 1
+    fi
+    
+    # Check if components are still running
     if ! kill -0 $RTL_TCP_PID 2>/dev/null; then
         bashio::log.info "Restarting rtl_tcp..."
-        rtl_tcp -a 127.0.0.1 -p 1234 -d $DEVICE_INDEX >/dev/null 2>&1 &
-        RTL_TCP_PID=$!
-        sleep 3
+        start_rtl_tcp
+    fi
+    
+    if ! kill -0 $PYTHON_PID 2>/dev/null; then
+        bashio::log.info "Restarting MQTT bridge..."
+        start_python_bridge
+    fi
+    
+    # Prevent rapid restart loops
+    if [ $RESTART_COUNT -gt 20 ]; then
+        bashio::log.warning "Many restarts detected, pausing 30 seconds..."
+        sleep 30
+        RESTART_COUNT=0
     fi
 done
