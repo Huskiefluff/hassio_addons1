@@ -30,7 +30,23 @@ WORKDIR /data
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
 # install rtl_433, rtl-sdr, libusb, mosquitto-clients, python3 py3-paho-mqtt; and deps of rtl_433_mqtt_hass.py.
 # make entry.sh and rtl_433_mqtt_hass.py executable.
-RUN apk add --no-cache rtl-sdr rtl_433 libusb mosquitto-clients python3 py3-paho-mqtt sed && \
+# Install rtl_433 from feat-gardensoil branch
+RUN apk add --no-cache --virtual .build-deps \
+    git \
+    cmake \
+    make \
+    g++ \
+    libusb-dev \
+    rtl-sdr-dev \
+    && git clone -b feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433 \
+    && cd /tmp/rtl_433 \
+    && mkdir build \
+    && cd build \
+    && cmake .. \
+    && make \
+    && make install \
+    && apk del .build-deps \
+    && rm -rf /tmp/rtl_433 \
     chmod +x /scripts/entry.sh && \
     chmod +x /scripts/rtl_433_mqtt_hass.py
 
