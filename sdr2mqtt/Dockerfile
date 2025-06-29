@@ -21,16 +21,43 @@ ENV MQTT_HOST=127.0.0.1 \
     DEBUG=False \
     LANG=C.UTF-8
 
-LABEL Maintainer="Huskie" \
+LABEL Maintainer="Jeffrey Stone" \
 Description="This image is used to start the RTL433 to HASS script that will monitor for 433Mhz devices and send the data to an MQTT server"
 
 WORKDIR /data
 
 # Copy scripts
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
-# install rtl_433, rtl-sdr, libusb, mosquitto-clients, python3 py3-paho-mqtt; and deps of rtl_433_mqtt_hass.py.
-# make entry.sh and rtl_433_mqtt_hass.py executable.
-RUN apk add --no-cache rtl-sdr rtl_433 libusb mosquitto-clients python3 py3-paho-mqtt sed && \
+
+# Install build dependencies and runtime dependencies
+RUN apk add --no-cache --virtual .build-deps \
+    git \
+    cmake \
+    make \
+    gcc \
+    g++ \
+    libc-dev \
+    libusb-dev && \
+    apk add --no-cache \
+    rtl-sdr \
+    libusb \
+    mosquitto-clients \
+    python3 \
+    py3-paho-mqtt \
+    sed && \
+    # Clone and build rtl_433 from the feat-gardensoil branch
+    git clone --depth 1 --branch feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433 && \
+    cd /tmp/rtl_433 && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    make install && \
+    # Clean up build dependencies and temporary files
+    cd / && \
+    rm -rf /tmp/rtl_433 && \
+    apk del .build-deps && \
+    # Make scripts executable
     chmod +x /scripts/entry.sh && \
     chmod +x /scripts/rtl_433_mqtt_hass.py
 
