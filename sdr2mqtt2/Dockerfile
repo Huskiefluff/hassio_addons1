@@ -28,8 +28,17 @@ WORKDIR /data
 
 # Copy scripts
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
-# install rtl_433, rtl-sdr, libusb, mosquitto-clients, python3 py3-paho-mqtt; and deps of rtl_433_mqtt_hass.py.
-# make entry.sh and rtl_433_mqtt_hass.py executable.
+
+# Install runtime dependencies first
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    py3-paho-mqtt \
+    mosquitto-clients \
+    jq \
+    libusb \
+    rtl-sdr
+
 # Install rtl_433 from feat-gardensoil branch
 RUN apk add --no-cache --virtual .build-deps \
     git \
@@ -47,8 +56,8 @@ RUN apk add --no-cache --virtual .build-deps \
     && make install \
     && apk del .build-deps \
     && rm -rf /tmp/rtl_433 \
-    chmod +x /scripts/entry.sh && \
-    chmod +x /scripts/rtl_433_mqtt_hass.py
+    && chmod +x /scripts/entry.sh \
+    && chmod +x /scripts/rtl_433_mqtt_hass.py
 
 # Execute entry script
 ENTRYPOINT [ "/scripts/entry.sh" ]
