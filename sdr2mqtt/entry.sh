@@ -12,75 +12,110 @@ PROTOCOL="$(bashio::config 'protocol')"
 FREQUENCY="$(bashio::config 'frequency')"
 UNITS="$(bashio::config 'units')"
 AUTO_DISCOVERY="$(bashio::config 'auto_discovery')"
+DEBUG="$(bashio::config 'debug')"
 
 export LANG=C
 export PATH="/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin"
 
-bashio::log.info "=== RTL_433 Diagnostic Mode ==="
+bashio::log.blue "::::::::Starting RTL_433 with Hardware Safety::::::::"
+bashio::log.info "MQTT Host: $MQTT_HOST"
 bashio::log.info "Protocol: $PROTOCOL"
 bashio::log.info "Frequency: $FREQUENCY"
 
-# Test 1: Basic help
-bashio::log.info "Test 1: Basic help command"
-if rtl_433 -h > /dev/null 2>&1; then
-    bashio::log.info "✓ Help command works"
+# Check if we have protocol 278
+if rtl_433 -R help | grep -q "278.*HG9901"; then
+    bashio::log.info "✓ Protocol 278 (Homelead HG9901) confirmed available"
 else
-    bashio::log.error "✗ Help command failed"
-    exit 1
+    bashio::log.warning "Protocol 278 status unknown"
 fi
 
-# Test 2: Version check
-bashio::log.info "Test 2: Version check"
-rtl_433 -V || bashio::log.info "Version check completed"
+# Test hardware access safely
+bashio::log.info "Testing RTL-SDR hardware access..."
 
-# Test 3: List devices (no RTL-SDR access)
-bashio::log.info "Test 3: List available protocols"
-rtl_433 -R help | head -5
+# Method 1: Try with explicit device detection
+DEVICE_FOUND=false
+DEVICE_INDEX=0
 
-# Test 4: Test without RTL-SDR device
-bashio::log.info "Test 4: Test with file input (no hardware)"
-echo '{"test": "data"}' > /tmp/test.json
-if timeout 3 rtl_433 -r /tmp/test.json -F json 2>/dev/null; then
-    bashio::log.info "✓ File input works"
-else
-    bashio::log.info "File input test completed"
+# Check if RTL-SDR devices are available
+if command -v rtl_test >/dev/null 2>&1; then
+    bashio::log.info "Testing with rtl_test..."
+    if timeout 3 rtl_test -t 2>/dev/null; then
+        bashio::log.info "✓ RTL-SDR hardware detected with rtl_test"
+        DEVICE_FOUND=true
+    else
+        bashio::log.warning "rtl_test failed or timed out"
+    fi
 fi
 
-# Test 5: Very basic RTL-SDR test
-bashio::log.info "Test 5: Basic RTL-SDR detection"
-if timeout 5 rtl_433 -d 0 -T 1 2>/dev/null; then
-    bashio::log.info "✓ RTL-SDR basic test passed"
-else
-    bashio::log.warning "RTL-SDR basic test failed or timed out"
+# Try alternative device detection
+if ! $DEVICE_FOUND && command -v rtl_sdr >/dev/null 2>&1; then
+    bashio::log.info "Testing with rtl_sdr..."
+    RTL_OUTPUT=$(timeout 3 rtl_sdr -d 9999 2>&1 || true)
+    if echo "$RTL_OUTPUT" | grep -q "Found.*device"; then
+        bashio::log.info "✓ RTL-SDR devices found"
+        DEVICE_FOUND=true
+        # Try to find specific device by serial
+        if echo "$RTL_OUTPUT" | grep -q "SN: $RTL_SDR_SERIAL_NUM"; then
+            DEVICE_INDEX=$(echo "$RTL_OUTPUT" | grep "SN: $RTL_SDR_SERIAL_NUM" | grep -o '^[^:]*' | head -1)
+            bashio::log.info "Found device with serial $RTL_SDR_SERIAL_NUM at index $DEVICE_INDEX"
+        fi
+    fi
 fi
 
-# Test 6: JSON output only (no MQTT)
-bashio::log.info "Test 6: JSON output test (5 seconds)"
-timeout 5 rtl_433 $FREQUENCY $PROTOCOL -C $UNITS -F json -d 0 || \
-bashio::log.info "JSON test completed"
+# Try the safest approach - let rtl_433 auto-detect
+if ! $DEVICE_FOUND; then
+    bashio::log.info "Using rtl_433 auto-detection..."
+    DEVICE_INDEX=""
+fi
 
-# Test 7: Test individual components of MQTT command
-bashio::log.info "Test 7: Testing MQTT parameters"
-bashio::log.info "MQTT Host: $MQTT_HOST"
-bashio::log.info "MQTT Port: $MQTT_PORT"
-bashio::log.info "MQTT User: $MQTT_USERNAME"
-bashio::log.info "MQTT Topic: $MQTT_TOPIC"
+bashio::log.blue "::::::::Starting rtl_433 with safe hardware access::::::::"
 
-# Test 8: Simple MQTT test (if previous tests pass)
-bashio::log.info "Test 8: Simple MQTT connection test"
-SIMPLE_MQTT="mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD"
-bashio::log.info "Testing: rtl_433 -F $SIMPLE_MQTT -T 1"
-timeout 3 rtl_433 -F "$SIMPLE_MQTT" -T 1 -d 0 2>/dev/null || \
-bashio::log.info "Simple MQTT test completed"
+# Build rtl_433 command with error handling
+RTL_CMD="rtl_433"
+RTL_CMD="$RTL_CMD $FREQUENCY"
+RTL_CMD="$RTL_CMD $PROTOCOL"
+RTL_CMD="$RTL_CMD -C $UNITS"
 
-# Test 9: If all else fails, try without device selection
-bashio::log.info "Test 9: Try without device specification"
-timeout 3 rtl_433 $FREQUENCY $PROTOCOL -F json -T 1 2>/dev/null || \
-bashio::log.info "No device test completed"
+# Add device specification only if we found one
+if [ -n "$DEVICE_INDEX" ]; then
+    RTL_CMD="$RTL_CMD -d $DEVICE_INDEX"
+    bashio::log.info "Using device index: $DEVICE_INDEX"
+else
+    bashio::log.info "Using auto-detection (no -d parameter)"
+fi
 
-bashio::log.info "=== Diagnostic completed ==="
-bashio::log.info "If all tests passed, the issue may be with the complex MQTT format or long-running operation"
-
-# Final attempt with simpler MQTT format
-bashio::log.info "Final test: Simplified MQTT format"
-rtl_433 $FREQUENCY $PROTOCOL -C $UNITS -F "mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,events=$MQTT_TOPIC/events" -d 0
+# Choose output method
+if [ "$AUTO_DISCOVERY" = "true" ]; then
+    bashio::log.info "Using JSON output for auto-discovery..."
+    RTL_CMD="$RTL_CMD -F json -M time -M protocol"
+    bashio::log.info "Command: $RTL_CMD"
+    
+    # Run with error handling and pipe to Python
+    set +e  # Don't exit on error
+    $RTL_CMD | python3 /scripts/rtl_433_mqtt_hass.py
+    EXIT_CODE=$?
+    
+    if [ $EXIT_CODE -ne 0 ]; then
+        bashio::log.error "rtl_433 exited with code $EXIT_CODE"
+        bashio::log.info "This might be due to hardware access issues"
+        bashio::log.info "Try checking your RTL-SDR device connection"
+    fi
+    
+else
+    bashio::log.info "Using direct MQTT output..."
+    # Use simplified MQTT format to avoid segfaults
+    RTL_CMD="$RTL_CMD -F mqtt://$MQTT_HOST:$MQTT_PORT,user=$MQTT_USERNAME,pass=$MQTT_PASSWORD,events=$MQTT_TOPIC/events"
+    RTL_CMD="$RTL_CMD -M time -M protocol"
+    
+    bashio::log.info "Command: $RTL_CMD"
+    
+    # Run with error handling
+    set +e  # Don't exit on error
+    $RTL_CMD
+    EXIT_CODE=$?
+    
+    if [ $EXIT_CODE -ne 0 ]; then
+        bashio::log.error "rtl_433 exited with code $EXIT_CODE"
+        bashio::log.info "This might be due to hardware access issues"
+    fi
+fi
