@@ -26,9 +26,6 @@ Description="This image is used to start the RTL433 to HASS script that will mon
 
 WORKDIR /data
 
-# Copy scripts
-COPY entry.sh rtl_433_mqtt_hass.py /scripts/
-
 # Install runtime dependencies first
 RUN apk add --no-cache \
     python3 \
@@ -37,27 +34,42 @@ RUN apk add --no-cache \
     mosquitto-clients \
     jq \
     libusb \
-    rtl-sdr
+    rtl-sdr \
+    bash
 
-# Install rtl_433 from feat-gardensoil branch
+# Install build dependencies and build rtl_433
 RUN apk add --no-cache --virtual .build-deps \
     git \
     cmake \
     make \
     g++ \
     libusb-dev \
-    rtl-sdr-dev \
-    && git clone -b feat-gardensoil https://github.com/merbanan/rtl_433.git /tmp/rtl_433 \
-    && cd /tmp/rtl_433 \
-    && mkdir build \
-    && cd build \
-    && cmake .. \
-    && make \
-    && make install \
-    && apk del .build-deps \
-    && rm -rf /tmp/rtl_433 \
-    && chmod +x /scripts/entry.sh \
-    && chmod +x /scripts/rtl_433_mqtt_hass.py
+    rtl-sdr-dev
+
+# Clone and build rtl_433 from feat-gardensoil branch
+RUN cd /tmp && \
+    git clone https://github.com/merbanan/rtl_433.git && \
+    cd rtl_433 && \
+    git checkout feat-gardensoil || git checkout master && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make && \
+    make install
+
+# Clean up build dependencies and source
+RUN apk del .build-deps && \
+    rm -rf /tmp/rtl_433
+
+# Copy scripts (do this after the build to ensure they exist)
+COPY entry.sh rtl_433_mqtt_hass.py /scripts/
+
+# Make scripts executable
+RUN chmod +x /scripts/entry.sh && \
+    chmod +x /scripts/rtl_433_mqtt_hass.py
+
+# Verify rtl_433 installation
+RUN rtl_433 -V
 
 # Execute entry script
 ENTRYPOINT [ "/scripts/entry.sh" ]
