@@ -32,7 +32,6 @@ RUN apk add --no-cache \
     py3-pip \
     mosquitto-clients \
     jq \
-    libssl-dev \
     libusb \
     rtl-sdr \
     bash && \
