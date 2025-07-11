@@ -1,6 +1,9 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
+# Define RTL_433 version
+ARG RTL433_VERSION=25.02
+
 # Define environment variables
 # Use this variable when creating a container to specify the MQTT broker host.
 ENV MQTT_HOST=127.0.0.1 \
@@ -26,66 +29,47 @@ Description="This image is used to start the RTL433 to HASS script that will mon
 
 WORKDIR /data
 
-# Install runtime dependencies - try to get everything from apk first
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    mosquitto-clients \
-    jq \
-    libusb \
-    rtl-sdr \
-    bash && \
-    apk add --no-cache py3-paho-mqtt || pip3 install --no-cache-dir --break-system-packages paho-mqtt
-
-# Install build dependencies including rtl-sdr-dev from testing
-RUN apk add --no-cache --virtual .build-deps \
-    git \
-    cmake \
-    make \
-    g++ \
-    gcc \
-    musl-dev \
-    libusb-dev \
-    librtlsdr \
-    linux-headers \
-    pkgconf
-
-# Build and install rtl-sdr from source first
-RUN cd /tmp && \
-    git clone https://github.com/osmocom/rtl-sdr.git && \
-    cd rtl-sdr && \
-    mkdir build && \
-    cd build && \
-    cmake .. -DINSTALL_UDEV_RULES=OFF -DDETACH_KERNEL_DRIVER=ON && \
-    make && \
-    make install && \
-    cd / && \
-    rm -rf /tmp/rtl-sdr
-
-# Clone and build rtl_433 from feat-gardensoil branch
-RUN cd /tmp && \
-    git clone https://github.com/merbanan/rtl_433.git && \
-    cd rtl_433 && \
-    git checkout feat-gardensoil || git checkout master && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make && \
-    make install && \
-    cd / && \
-    apk del .build-deps && \
-    rm -rf /tmp/rtl_433 && \
-    rm -rf /var/cache/apk/*
-
 # Copy scripts
 COPY entry.sh rtl_433_mqtt_hass.py /scripts/
 
-# Make scripts executable
-RUN chmod +x /scripts/entry.sh && \
+# Install build dependencies and runtime dependencies
+RUN apk add --no-cache \
+        # Runtime dependencies
+        rtl-sdr \
+        libusb \
+        mosquitto-clients \
+        python3 \
+        py3-paho-mqtt \
+        sed \
+        libusb-dev \
+        librtlsdr \
+        # Build dependencies (will be removed later)
+        && \
+    apk add --no-cache --virtual .build-deps \
+        build-base \
+        cmake \
+        git \
+        libtool \
+        pkgconfig \
+        rtl-sdr-dev \
+        libusb-dev && \
+    # Build RTL_433 from source
+    cd /tmp && \
+    git clone https://github.com/merbanan/rtl_433.git && \
+    cd rtl_433 && \
+    git checkout ${RTL433_VERSION} && \
+    mkdir build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j$(nproc) && \
+    make install && \
+    # Clean up build dependencies and temporary files
+    cd / && \
+    rm -rf /tmp/rtl_433 && \
+    apk del .build-deps && \
+    # Make scripts executable
+    chmod +x /scripts/entry.sh && \
     chmod +x /scripts/rtl_433_mqtt_hass.py
-
-# Verify rtl_433 installation
-RUN rtl_433 -V || echo "rtl_433 installation verification failed"
 
 # Execute entry script
 ENTRYPOINT [ "/scripts/entry.sh" ]
