@@ -1,3 +1,5 @@
 {
-  "name": "Home Assistant Add-ons: Huskie",
+  "name": "Home Assistant Add-ons: Albertech",
+  "url": "https://github.com/galbers/hassio_addons",
+  "maintainer": "Garrett Albers"
 }
