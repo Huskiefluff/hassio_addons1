@@ -2,7 +2,7 @@ ARG BUILD_FROM
 FROM $BUILD_FROM
 
 # Define RTL_433 version
-ARG RTL433_VERSION=25.02
+#ARG RTL433_VERSION=25.02
 
 # Define environment variables
 # Use this variable when creating a container to specify the MQTT broker host.
