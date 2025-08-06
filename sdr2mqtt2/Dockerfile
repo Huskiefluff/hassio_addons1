@@ -51,7 +51,7 @@ RUN apk add --no-cache \
         git \
         libtool \
         pkgconfig \
-        rtl-sdr-dev \
+        librtlsdr-dev \
         libusb-dev && \
     # Build RTL_433 from source
     cd /tmp && \
