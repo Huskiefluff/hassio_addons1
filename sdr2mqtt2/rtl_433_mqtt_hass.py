@@ -176,11 +176,11 @@ mappings = {
         "object_suffix": "bat",
         "config": {
             "device_class": "battery",
-            "state_class": "measurement",
+#            "state_class": "measurement",
             "name": "Battery Level",
             "unit_of_measurement": "%",
             "value_template": "{{ value|int }}",
-            "icon": "{% set battery_level = value|int %} {% if battery_level >= 95 %} mdi:battery {% elif battery_level >= 85 %} mdi:battery-90 {% elif battery_level >= 75 %} mdi:battery-80 {% elif battery_level >= 65 %} mdi:battery-70 {% elif battery_level >= 55 %} mdi:battery-60 {% elif battery_level >= 45 %} mdi:battery-50 {% elif battery_level >= 35 %} mdi:battery-40 {% elif battery_level >= 25 %} mdi:battery-30 {% elif battery_level >= 15 %} mdi:battery-20 {% elif battery_level >= 5 %} mdi:battery-10 {% else %} mdi:battery-outline {% endif %}"
+#            "icon": "{% set battery_level = value|int %} {% if battery_level >= 95 %} mdi:battery {% elif battery_level >= 85 %} mdi:battery-90 {% elif battery_level >= 75 %} mdi:battery-80 {% elif battery_level >= 65 %} mdi:battery-70 {% elif battery_level >= 55 %} mdi:battery-60 {% elif battery_level >= 45 %} mdi:battery-50 {% elif battery_level >= 35 %} mdi:battery-40 {% elif battery_level >= 25 %} mdi:battery-30 {% elif battery_level >= 15 %} mdi:battery-20 {% elif battery_level >= 5 %} mdi:battery-10 {% else %} mdi:battery-outline {% endif %}"
         }
     },        
    
@@ -209,17 +209,17 @@ mappings = {
         }
     },
 
-    "moisture": {
-        "device_type": "sensor",
-        "object_suffix": "H",
-        "config": {
-            "device_class": "humidity",
-            "state_class":"measurement",
-            "name": "Moisture",
-            "unit_of_measurement": "%",
-            "value_template": "{{ value|float }}"
-        }
-    },
+#    "moisture": {
+#        "device_type": "sensor",
+#        "object_suffix": "H",
+#        "config": {
+#            "device_class": "humidity",
+#            "state_class":"measurement",
+#            "name": "Moisture",
+#            "unit_of_measurement": "%",
+#            "value_template": "{{ value|float }}"
+#        }
+#    },
 
     "pressure_hPa": {
         "device_type": "sensor",
